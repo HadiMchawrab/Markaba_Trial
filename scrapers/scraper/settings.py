@@ -123,17 +123,33 @@ SCRAPEOPS_PROXY_ENABLED = True
 # ]
 
 
+# DOWNLOADER_MIDDLEWARES = {
+#     # 1) your Cloudflare or FreeProxy middleware
+#     #'scraper.middlewares.HybridProxyMiddleware':           90,
+#    # 'scraper.middlewares.CloudflareProxyMiddleware':    100,
+# #    "scrapy_playwright.middleware.ScrapyPlaywrightDownloadHandler": 543,
+# #       'scraper.middlewares.FreeProxyMiddleware':               100,
+# #             'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': 110,
+# #             'scraper.middlewares.EmptyPageRetryMiddleware':          150,
+# #             'scrapy.downloadermiddlewares.retry.RetryMiddleware':    200,
+# #             'scrapy_user_agents.middlewares.RandomUserAgentMiddleware': 300,
+# #             'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None,
+
+
+# }
 DOWNLOADER_MIDDLEWARES = {
-    # 1) your Cloudflare or FreeProxy middleware
-    #'scraper.middlewares.HybridProxyMiddleware':           90,
-   # 'scraper.middlewares.CloudflareProxyMiddleware':    100,
-      'scraper.middlewares.FreeProxyMiddleware':               100,
-            'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': 110,
-            'scraper.middlewares.EmptyPageRetryMiddleware':          150,
-            'scrapy.downloadermiddlewares.retry.RetryMiddleware':    200,
-            'scrapy_user_agents.middlewares.RandomUserAgentMiddleware': 300,
-            'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None,
+    # "scrapy_playwright.middleware.PlaywrightMiddleware": 800,
+    # "scrapy_playwright.page.PageCoroutineMiddleware": 800,
+    #'scrapy_impersonate.middleware.ScrapyImpersonateMiddleware': 100,
+    #"scraper.middlewares.SwiftshadowProxyMiddleware": 300,
+    "scrapy.downloadermiddlewares.httpcompression.HttpCompressionMiddleware": 100,
 }
+DOWNLOAD_HANDLERS = {
+    "http": "scrapy_impersonate.ImpersonateDownloadHandler",
+    "https": "scrapy_impersonate.ImpersonateDownloadHandler",
+}
+
+USER_AGENT = None
 
 RETRY_ENABLED     = True
 RETRY_TIMES       = 5

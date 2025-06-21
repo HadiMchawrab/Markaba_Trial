@@ -9,6 +9,12 @@ import urllib.parse
 from scrapy import signals
 from scrapy.exceptions import IgnoreRequest
 from random import choice
+from fake_useragent import UserAgent
+from swiftshadow.classes import ProxyInterface
+from typing import List
+from requests.exceptions import RequestException
+import logging
+
 
 
 class ScraperSpiderMiddleware:
@@ -316,31 +322,63 @@ class SingleCookieMiddleware:
 
 
 HEADER_POOLS = {
+    # core content negotiation
     'Accept': [
-      'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'text/html,application/xml;q=0.9,*/*;q=0.8',
+        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'text/html,application/xml;q=0.9,*/*;q=0.8',
+        'application/xml,application/xhtml+xml,text/html;q=0.9',
     ],
     'Accept-Language': [
-      'en-US,en;q=0.5',
-      'ar-SA,ar;q=0.5,en-US;q=0.3',
+        'en-US,en;q=0.5',
+        'ar-SA,ar;q=0.5,en-US;q=0.3',
+        'en-GB,en-US;q=0.9,en;q=0.8',
     ],
-    # we’ll dynamically fill Referer from listing pages in your spider if you like,
-    # here’s a basic pool to start with:
+    'Accept-Encoding': [
+        'gzip, deflate, br',
+        'gzip, deflate',
+    ],
+
+    # referers from different pages
     'Referer': [
-      'https://www.dubizzle.sa/en/vehicles/cars-for-sale/',
-      'https://www.dubizzle.sa/en/vehicles/cars-for-sale/?page=2',
-      'https://www.dubizzle.sa/en/vehicles/cars-for-sale/?page=3',
+        'https://www.dubizzle.sa/en/vehicles/cars-for-sale/',
+        'https://www.dubizzle.sa/en/vehicles/cars-for-sale/?page=2',
+        'https://www.dubizzle.sa/en/vehicles/cars-for-sale/?page=5',
+    ],
+
+    # connection / caching / security hints
+    'Cache-Control': [
+        'max-age=0',
+        'no-cache',
+    ],
+    'Connection': [
+        'keep-alive',
+        'close',
+    ],
+    'Upgrade-Insecure-Requests': [
+        '1',
+    ],
+
+    # newer Chrome fetch metadata headers
+    'Sec-Fetch-Site': [
+        'same-origin',
+        'none',
+    ],
+    'Sec-Fetch-Mode': [
+        'navigate',
+    ],
+    'Sec-Fetch-User': [
+        '?1',
+    ],
+    'Sec-Fetch-Dest': [
+        'document',
     ],
 }
-
 class BrowserHeaderMiddleware:
-    """Inject a random, realistic browser header set on each ad request."""
     def process_request(self, request, spider):
         if "/en/ad/" not in request.url:
-            return None
-        for hdr, opts in HEADER_POOLS.items():
-            request.headers[hdr] = choice(opts)
-        return None
+            return
+        for header, choices in HEADER_POOLS.items():
+            request.headers[header] = choice(choices)
 
 
 class FreeProxyMiddleware:
@@ -434,7 +472,99 @@ class FreeProxyMiddleware:
         spider.logger.info(f"[FreeProxy] blacklisting stub proxy {proxy}")
 
 
+
+
+
+
+# load_dotenv()
+logger = logging.getLogger(__name__)
+
+class SwiftshadowProxyMiddleware:
+    """
+    Rotate through a pool of Swiftshadow proxies and auto-refresh on failure,
+    but not during __init__.
+    """
+
+    def __init__(self, proxy_count: int = 20):
+        # store primitive config only
+        self.proxy_count = proxy_count
+        self.proxies: List[str] = []
+        self.swift = None          # don't instantiate here!
+        self.ua = UserAgent()
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        mw = cls(proxy_count=crawler.settings.getint("SWIFT_PROXY_COUNT", 20))
+        crawler.signals.connect(mw.spider_opened, signal=signals.spider_opened)
+        return mw
+
+    def spider_opened(self, spider):
+        """Safe place to do network I/O once the reactor is running."""
+        try:
+            # instantiate Swiftshadow client here
+            self.swift = ProxyInterface(countries=["US"], protocol="http")
+            # fetch the initial batch
+            self.fetch_proxies()
+            spider.logger.info(f"[Swiftshadow] Loaded {len(self.proxies)} proxies")
+        except RequestException as e:
+            spider.logger.warning(
+                f"[Swiftshadow] Could not fetch initial proxies: {e}. Continuing without proxies."
+            )
+            self.proxies = []
+
+    def fetch_proxies(self):
+        """Refill self.proxies with fresh items, catching individual fetch errors."""
+        if not self.swift:
+            return
+        new = []
+        for _ in range(self.proxy_count):
+            try:
+                p = self.swift.get().as_string()
+                new.append(p)
+            except Exception as e:
+                logger.debug(f"[Swiftshadow] single-proxy fetch error: {e}")
+        self.proxies = new
+
+    def _next_proxy(self):
+        """Pop one; if empty, fetch again."""
+        if not self.proxies:
+            self.fetch_proxies()
+        return self.proxies.pop() if self.proxies else None
+
+    def process_request(self, request, spider):
+        # rotate UA
+        ua = self.ua.random
+        request.headers["User-Agent"] = ua
+
+        # assign a proxy if available
+        proxy = self._next_proxy()
+        if proxy:
+            request.meta["proxy"] = proxy
+            spider.logger.debug(f"[Swiftshadow] Using proxy {proxy} with UA={ua}")
+        else:
+            spider.logger.debug(f"[Swiftshadow] No proxy, sending direct with UA={ua}")
+
+        return None
+
+    def process_response(self, request, response, spider):
+        # detect blocks or stub pages
+        if response.status != 200 or re.search(r"Access denied|Bot check|<title>Stub</title>",
+                                              response.text, re.IGNORECASE):
+            spider.logger.warning(f"[Swiftshadow] Bad response ({response.status}) for {request.url}, refreshing proxies.")
+            self.fetch_proxies()
+            return request.replace(dont_filter=True)
+        return response
+
+    def process_exception(self, request, exception, spider):
+        spider.logger.error(f"[Swiftshadow] Exception {exception} on {request.url}, refreshing proxies.")
+        self.fetch_proxies()
+        return request.replace(dont_filter=True)
+
+
+
 class EmptyPageRetryMiddleware:
+
+
     """
     Detect stub ad pages (no <h1> or dataLayer), blacklist that proxy,
     and retry the request on a fresh IP.
