@@ -1,26 +1,60 @@
-This application is designed to scrape multiple car websites, aggregate their listings, and display them on a unified platform. The backend uses Scrapy for web scraping and SQLite for the database. Flask is used for the frontend and dashboard.
+# Markaba - Car Valuation Engine
 
-Features:
-- Scrape car listings from various websites using Scrapy
-- Store data in a local SQLite database
-- Display all cars, with comparison and filtering options (planned)
+A full-stack platform that scrapes car listings from multiple UAE marketplaces, aggregates them into a unified database, and provides search, filtering, and analytics through a web dashboard.
 
-Setup Instructions:
-1. Create a virtual environment:
-    python -m venv venv
+## Tech Stack
 
-2. Activate the virtual environment:
-    .\venv\Scripts\Activate
+- **Backend:** FastAPI, PostgreSQL (Aiven), psycopg2
+- **Scrapers:** Scrapy, Playwright, BeautifulSoup4
+- **Frontend:** React 19, React Router, Chart.js, Recharts
+- **Infra:** Docker Compose, Azure Container Apps
 
-3. Install dependencies:
-    pip install -r requirements.txt
+## Features
 
-4. Run the scraper:
-    python main.py
-    
-    This will:
-    - Extract ad links from Dubizzle
-    - Save the links to a file named links.json
-    - Print the number of unique links found
+- **Multi-source scraping** — Dubizzle, CarSwitch, OpenSooq, and Syarah with daily update spiders
+- **Unified listings** — Search and filter by brand, model, year, price, mileage, location, and seller type
+- **Analytics dashboard** — Depreciation analysis, price spread statistics, and top contributor rankings
+- **Trim normalization** — Automated vehicle trim variant mapping across sources
 
-Note: The application now uses Scrapy instead of Selenium for more efficient web scraping.
+## Getting Started
+
+### With Docker (recommended)
+
+```bash
+docker-compose up
+```
+
+- Frontend: `http://localhost:3001`
+- Backend API: `http://localhost:8001`
+
+### Manual Setup
+
+```bash
+# Backend
+cd backend
+pip install -r requirements.txt
+python run.py
+
+# Frontend
+cd frontend
+npm install
+npm start
+
+# Scrapers
+cd scrapers
+pip install -r requirements.txt
+scrapy crawl dubizzle
+```
+
+## API Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /listings` | Paginated listings with sorting |
+| `GET /listings/search` | Filter by brand, model, year, price, mileage |
+| `GET /api/analytics/stats` | Listing counts and monthly stats |
+| `GET /api/analytics/depreciation` | Depreciation analysis by make/model |
+| `GET /api/analytics/price-spread` | Price statistics (mean, median, std dev) |
+| `GET /api/analytics/contributors` | Top sellers/agencies by listing count |
+
+See `/documentation` in the frontend for full API docs.
